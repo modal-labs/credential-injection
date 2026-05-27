@@ -53,44 +53,46 @@ def credential_injector_plain(
         upstream_url = f"https://{upstream_host}{path}"
 
         headers = {
-                k: v
-                for k, v in request.headers.items()
-                if k.lower() not in _STRIP_REQUEST_HEADERS
-                }
+            k: v
+            for k, v in request.headers.items()
+            if k.lower() not in _STRIP_REQUEST_HEADERS
+        }
         headers.update(inject_headers)
 
         try:
             async with httpx.AsyncClient() as client:
                 async with client.stream(
-                        method=request.method,
-                        url=upstream_url,
-                        headers=headers,
-                        content=request.stream(),
-                        ) as upstream_resp:
+                    method=request.method,
+                    url=upstream_url,
+                    headers=headers,
+                    content=request.stream(),
+                ) as upstream_resp:
                     response_headers = {
-                            k: v
-                            for k, v in upstream_resp.headers.items()
-                            if k.lower() not in _STRIP_RESPONSE_HEADERS
-                            }
+                        k: v
+                        for k, v in upstream_resp.headers.items()
+                        if k.lower() not in _STRIP_RESPONSE_HEADERS
+                    }
                     response = StreamingResponse(
-                            upstream_resp.aiter_raw(),
-                            status_code=upstream_resp.status_code,
-                            headers=response_headers,
-                            )
+                        upstream_resp.aiter_raw(),
+                        status_code=upstream_resp.status_code,
+                        headers=response_headers,
+                    )
                     await response(scope, receive, send)
         except httpx.RequestError as exc:
             await Response(f"Upstream error: {exc}", status_code=502)(
-                    scope, receive, send
-                    )
+                scope, receive, send
+            )
 
     return app
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--upstream", required=True, help="Upstream hostname, e.g. api.anthropic.com")
     parser.add_argument(
-            "--header",
+        "--upstream", required=True, help="Upstream hostname, e.g. api.anthropic.com"
+    )
+    parser.add_argument(
+        "--header",
         action="append",
         required=True,
         help="Header to inject as NAME=ENV_VAR (repeatable). The value is read from the named env var.",

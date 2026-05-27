@@ -63,9 +63,11 @@ def main():
         SANDBOX_CODE,
         image=sandbox_image,
         secrets=[
-            modal.Secret.from_dict({
-                "EGRESS_PROXY_URL": f"http://{SIDECAR_NAME}:{SIDECAR_PORT}",
-            })
+            modal.Secret.from_dict(
+                {
+                    "EGRESS_PROXY_URL": f"http://{SIDECAR_NAME}:{SIDECAR_PORT}",
+                }
+            )
         ],
         app=app,
     )

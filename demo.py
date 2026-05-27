@@ -6,7 +6,9 @@ from modal_cred_proxy import create_jwt, credential_injector
 
 app = modal.App("egress-proxy-demo")
 
-EGRESS_JWT_SECRET = "demo-egress-proxy-secret-change-for-production-wow-look-its-different-now"
+EGRESS_JWT_SECRET = (
+    "demo-egress-proxy-secret-change-for-production-wow-look-its-different-now"
+)
 
 _image = (
     modal.Image.debian_slim()
@@ -62,13 +64,17 @@ def main():
 
     egress_jwt = create_jwt(EGRESS_JWT_SECRET, validity_seconds=3600)
 
-    secret = modal.Secret.from_dict({
-        "EGRESS_JWT": egress_jwt,
-        "EGRESS_PROXY_URL": proxy_function.get_web_url(),
-    })
+    secret = modal.Secret.from_dict(
+        {
+            "EGRESS_JWT": egress_jwt,
+            "EGRESS_PROXY_URL": proxy_function.get_web_url(),
+        }
+    )
 
     sb = modal.Sandbox.create(
-        "python3", "-c", SANDBOX_CODE,
+        "python3",
+        "-c",
+        SANDBOX_CODE,
         image=modal.Image.debian_slim().pip_install("anthropic"),
         secrets=[secret],
         app=app,
