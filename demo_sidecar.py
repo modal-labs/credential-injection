@@ -46,7 +46,7 @@ print(message.content[0].text)
 @app.local_entrypoint()
 def main():
     # Image for the sidecar: ships the proxy code + its deps. Must be a
-    # pre-built image because `_experimental_containers.create` requires
+    # pre-built image because `_experimental_sidecars.create` requires
     # `image._object_id` to be set.
     sidecar_image = (
         modal.Image.debian_slim()
@@ -74,7 +74,7 @@ def main():
 
     # Start the proxy as a sidecar. The Anthropic key is mounted here only —
     # the sandbox's environment never receives it.
-    sandbox._experimental_containers.create(
+    sandbox._experimental_sidecars.create(
         "python",
         "-m",
         "modal_cred_proxy._sidecar_proxy",
