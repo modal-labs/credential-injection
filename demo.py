@@ -62,13 +62,17 @@ def main():
 
     egress_jwt = create_jwt(EGRESS_JWT_SECRET, validity_seconds=3600)
 
-    secret = modal.Secret.from_dict({
-        "EGRESS_JWT": egress_jwt,
-        "EGRESS_PROXY_URL": proxy_function.get_web_url(),
-    })
+    secret = modal.Secret.from_dict(
+        {
+            "EGRESS_JWT": egress_jwt,
+            "EGRESS_PROXY_URL": proxy_function.get_web_url(),
+        }
+    )
 
     sb = modal.Sandbox.create(
-        "python3", "-c", SANDBOX_CODE,
+        "python3",
+        "-c",
+        SANDBOX_CODE,
         image=modal.Image.debian_slim().pip_install("anthropic"),
         secrets=[secret],
         app=app,
