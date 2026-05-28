@@ -6,9 +6,7 @@ from modal_cred_proxy import create_jwt, credential_injector
 
 app = modal.App("egress-proxy-demo")
 
-EGRESS_JWT_SECRET = (
-    "demo-egress-proxy-secret-change-for-production-wow-look-its-different-now"
-)
+EGRESS_JWT_SECRET = "demo-egress-proxy-secret-change-for-production"
 
 _image = (
     modal.Image.debian_slim()
