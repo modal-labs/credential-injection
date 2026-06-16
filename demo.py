@@ -1,81 +1,78 @@
-import os
+"""Credential injection for Modal Sandboxes via a reverse-proxy sidecar.
+
+A proxy runs as a sibling container in the sandbox's private network, so it is
+only reachable from the sandbox itself — network isolation is the auth boundary.
+
+The Anthropic secret is mounted into the sidecar only, never the sandbox.
+This example uses Caddy, but any reverse proxy (nginx, Envoy, etc.) works.
+"""
 
 import modal
 
-from modal_cred_proxy import create_jwt, credential_injector
-
 app = modal.App("egress-proxy-demo")
 
-EGRESS_JWT_SECRET = "demo-egress-proxy-secret-change-for-production"
+SIDECAR_NAME = "egress-proxy"
+SIDECAR_PORT = 8080
 
-_image = (
-    modal.Image.debian_slim()
-    .pip_install("pyjwt", "httpx", "starlette")
-    .add_local_python_source("modal_cred_proxy")
-)
+SANDBOX_CODE = f"""
+import anthropic, os, time
 
-SANDBOX_CODE = """
-import anthropic, os
+# Give the sidecar a moment to finish starting before the first request.
+time.sleep(5)
+
+proxy_url = os.environ["EGRESS_PROXY_URL"]
+has_key = "ANTHROPIC_API_KEY" in os.environ
+print(f"ANTHROPIC_API_KEY in sandbox env: {{has_key}}")
+print(f"Routing requests through: {{proxy_url}}")
+print("Calling Anthropic API with api_key='unused' — the sidecar will inject the real key...")
 
 client = anthropic.Anthropic(
-    api_key=os.environ["EGRESS_JWT"],
-    base_url=os.environ["EGRESS_PROXY_URL"],
+    api_key="unused",
+    base_url=proxy_url,
 )
 
 message = client.messages.create(
     model="claude-haiku-4-5-20251001",
     max_tokens=256,
-    messages=[{"role": "user", "content": "Say hello in one sentence."}],
+    messages=[{{"role": "user", "content": "Say hello in one sentence."}}],
 )
-print(message.content[0].text)
+print(f"Response: {{message.content[0].text}}")
 """
-
-
-@app.function(
-    image=_image,
-    secrets=[
-        modal.Secret.from_name("modal_egress_proxy_secret"),
-        modal.Secret.from_name("anthropic-secret"),
-    ],
-)
-@modal.asgi_app()
-def proxy_function():
-    anthropic_key = os.environ["ANTHROPIC_API_KEY"]
-    egress_secret = os.environ["MODAL_EGRESS_PROXY_SECRET"]
-    return credential_injector(
-        egress_secret,
-        "api.anthropic.com",
-        {"x-api-key": anthropic_key},
-    )
 
 
 @app.local_entrypoint()
 def main():
-    modal.Secret.objects.create(
-        "modal_egress_proxy_secret",
-        {"MODAL_EGRESS_PROXY_SECRET": EGRESS_JWT_SECRET},
-        allow_existing=True,
-    )
-    egress_modal_secret = modal.Secret.from_name("modal_egress_proxy_secret")
-    egress_modal_secret.hydrate()
-    egress_modal_secret.update({"MODAL_EGRESS_PROXY_SECRET": EGRESS_JWT_SECRET})
-
-    egress_jwt = create_jwt(EGRESS_JWT_SECRET, validity_seconds=3600)
-
-    secret = modal.Secret.from_dict(
-        {
-            "EGRESS_JWT": egress_jwt,
-            "EGRESS_PROXY_URL": proxy_function.get_web_url(),
-        }
+    # Must be a pre-built image because `_experimental_sidecars.create`
+    # requires `image._object_id` to be set before the sandbox is created.
+    # caddy:2 default entrypoint: caddy run --config /etc/caddy/Caddyfile
+    sidecar_image = (
+        modal.Image.from_registry("caddy:2")
+        .add_local_file("Caddyfile", "/etc/caddy/Caddyfile", copy=True)
+        .build(app)
     )
 
-    sb = modal.Sandbox.create(
+    sandbox_image = modal.Image.debian_slim().pip_install("anthropic")
+
+    sandbox = modal.Sandbox.create(
         "python3",
         "-c",
         SANDBOX_CODE,
-        image=modal.Image.debian_slim().pip_install("anthropic"),
-        secrets=[secret],
+        image=sandbox_image,
+        secrets=[
+            modal.Secret.from_dict(
+                {"EGRESS_PROXY_URL": f"http://{SIDECAR_NAME}:{SIDECAR_PORT}"}
+            )
+        ],
         app=app,
     )
-    sb.wait()
-    print(sb.stdout.read())
+
+    # Start Caddy as a sidecar. The Anthropic key is mounted here only —
+    # the sandbox's environment never receives it.
+    sandbox._experimental_sidecars.create(
+        name=SIDECAR_NAME,
+        image=sidecar_image,
+        secrets=[modal.Secret.from_name("anthropic-secret")],
+    )
+
+    sandbox.wait()
+    print(sandbox.stdout.read())

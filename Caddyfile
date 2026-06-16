@@ -1,0 +1,11 @@
+{
+	admin off
+}
+
+:8080 {
+	reverse_proxy https://api.anthropic.com {
+		header_up Host api.anthropic.com
+		header_up x-api-key {env.ANTHROPIC_API_KEY}
+		header_up -Authorization
+	}
+}
