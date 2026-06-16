@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "httpx>=0.28.1",
-    "pyjwt>=2.12.1",
+    "pyjwt>=2.13.0",
     "starlette>=0.46.0",
     "uvicorn>=0.30.0",
 ]
