@@ -28,6 +28,8 @@
 # modal secret create anthropic-secret ANTHROPIC_API_KEY=sk-ant-...
 # ```
 
+import argparse
+import tempfile
 from pathlib import Path
 
 import modal
@@ -45,42 +47,58 @@ SIDECAR_NAME = "egress-proxy"
 SIDECAR_PORT = 8080
 PROXY_URL = f"http://{SIDECAR_NAME}:{SIDECAR_PORT}"
 
-# The proxy's behavior lives in a `Caddyfile` sitting next to this script. It forwards
-# every request to the Anthropic API, filling in the real key from the Sidecar's own
-# environment. It also drops any `Authorization` header that came from the Sandbox, so the
-# proxy decides which key reaches the upstream.
+# The proxy's behavior is defined by a
+# [Caddyfile](https://caddyserver.com/docs/caddyfile). Ours forwards every request to the
+# Anthropic API, filling in the real key from the Sidecar's own environment. It also
+# drops any `Authorization` header that came from the Sandbox, so the proxy decides which
+# key reaches the upstream.
 
-# ```
-# {
-# 	admin off
-# }
-#
-# :8080 {
-# 	reverse_proxy https://api.anthropic.com {
-# 		header_up Host api.anthropic.com
-# 		header_up x-api-key {env.ANTHROPIC_API_KEY}
-# 		header_up -Authorization
-# 	}
-# }
-# ```
+DEFAULT_CADDYFILE = """\
+{
+    admin off
+}
+
+:8080 {
+    reverse_proxy https://api.anthropic.com {
+        header_up Host api.anthropic.com
+        header_up x-api-key {env.ANTHROPIC_API_KEY}
+        header_up -Authorization
+    }
+}
+"""
+
+# To point the proxy at a different upstream, or to add rules of your own — rate limits,
+# path restrictions, extra headers — pass your own config instead:
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--caddyfile",
+    type=Path,
+    default=None,
+    help="path to a Caddyfile to use instead of the default",
+)
+args = parser.parse_args()
+
+caddyfile = args.caddyfile.read_text() if args.caddyfile else DEFAULT_CADDYFILE
 
 # ## Build the Images
 
-# We copy that config to the path the `caddy` Image already reads on startup, so the
-# Sidecar needs no command of its own.
+# We write the config out and copy it to the path the `caddy` Image already reads on
+# startup, so the Sidecar needs no command of its own.
 
 # Sidecars can't build their Image lazily on startup, so we
 # [build it up front](https://modal.com/docs/guide/sandboxes#separating-image-builds-from-sandbox-creation)
 # with `Image.build` and pass the resolved Image along.
 
-with modal.enable_output():
-    sidecar_image = (
-        modal.Image.from_registry("caddy:2.11")
-        .add_local_file(
-            Path(__file__).parent / "Caddyfile", "/etc/caddy/Caddyfile", copy=True
+with tempfile.TemporaryDirectory() as tmp_dir:
+    caddyfile_path = Path(tmp_dir) / "Caddyfile"
+    caddyfile_path.write_text(caddyfile)
+    with modal.enable_output():
+        sidecar_image = (
+            modal.Image.from_registry("caddy:2.11")
+            .add_local_file(caddyfile_path, "/etc/caddy/Caddyfile", copy=True)
+            .build(app)
         )
-        .build(app)
-    )
 
 sandbox_image = modal.Image.debian_slim(python_version="3.12").pip_install(
     "anthropic==0.121.0"
