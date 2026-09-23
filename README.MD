@@ -1,5 +1,7 @@
 # Inject Secrets into a Sandbox with a proxy Sidecar
 
+**Update**: the latest Modal example documenting this pattern can be found [here](https://modal.com/docs/examples/sidecar_secrets_injection).
+
 Code running in a [Sandbox](https://modal.com/docs/guide/sandbox) often needs to call an
 external API that requires an API key. Rather than passing that key into the Sandbox,
 you can keep it in a separate, trusted container and let that container add it to
